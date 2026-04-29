@@ -962,19 +962,53 @@ def build_all_paths(disease_name):
 
 
 def bfs_optimal(disease_name):
+    """BFS — Breadth-First Search.
+    Goal: reach diagnosis in the FEWEST diagnostic steps (shallowest path in the search tree).
+    Models a clinician who wants the QUICKEST screening: minimum number of tests.
+    Tie-breakers: lowest time, then lowest cost.
+    """
     paths = build_all_paths(disease_name)
-    return min(paths, key=lambda p: p["num_tests"])
+    return min(paths, key=lambda p: (p["num_tests"], p["total_time"], p["total_cost"]))
 
 
 def ucs_optimal(disease_name):
+    """UCS — Uniform Cost Search.
+    Goal: minimise CUMULATIVE MONETARY COST (₹), regardless of path length.
+    Models a budget-constrained pathway: cheapest workup wins, even if it needs more tests.
+    Tie-breakers: prefer MORE tests (more thorough for the same money), then lower time.
+    """
     paths = build_all_paths(disease_name)
-    return min(paths, key=lambda p: p["total_cost"])
+    return min(paths, key=lambda p: (p["total_cost"], -p["num_tests"], p["total_time"]))
 
 
 def astar_optimal(disease_name):
+    """A* Search — informed search using f(n) = g(n) + h(n).
+       g(n) = real time-to-diagnosis (hours), the actual cost incurred so far.
+       h(n) = heuristic estimate of remaining diagnostic uncertainty:
+              h(n) = (max_tests_in_any_path − tests_in_this_path) × confidence_weight
+              + cost_efficiency_term
+       So a path with FEWER tests has HIGHER heuristic (less corroboration ⇒ more uncertainty).
+    Goal: best clinical balance — fastest path that still confirms the diagnosis with
+    sufficient confidence. Often picks a moderately longer, well-rounded path that gets
+    to a confident diagnosis quickly.
+    """
     paths = build_all_paths(disease_name)
-    # A* heuristic: cost + time penalty (time * 50 INR equivalent urgency cost)
-    return min(paths, key=lambda p: p["total_cost"] + p["total_time"] * 50)
+    if not paths:
+        return None
+    max_tests = max(p["num_tests"] for p in paths)
+    min_cost = min(p["total_cost"] for p in paths) or 1
+
+    def f_score(p):
+        # g(n): elapsed clinical time (each hour of delay = ₹300 of patient risk)
+        g = p["total_time"] * 300
+        # h(n): uncertainty heuristic — penalty for skipping corroborating tests
+        uncertainty_penalty = (max_tests - p["num_tests"]) * 2000
+        # cost-efficiency: relative cost above the cheapest option
+        cost_overhead = (p["total_cost"] - min_cost) * 0.4
+        return g + uncertainty_penalty + cost_overhead
+
+    # Tie-breaker: prefer the path with the lowest TIME (urgency wins ties)
+    return min(paths, key=lambda p: (f_score(p), p["total_time"], -p["num_tests"]))
 
 
 def get_candidate_diseases(symptoms):
